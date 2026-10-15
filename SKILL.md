@@ -1824,3 +1824,25 @@ Skinned characters as well (section "Skinned characters"):
 32. Animation change: rebuild live and stop. Bake, save and render only after approval.
 33. Cloth: assert pinned verts against plain skinning, print the loop gap, compute shape counts.
 34. Heavy walk: weight in the legs, no shake on torso or head, loose parts swing late and slow.
+
+## UV wrapping and textures on floors and walls
+
+These came from a real job: a grid floor, a curved wall that meets it, and a texture that had to read as one surface. Each lesson cost a round trip.
+
+**Check which texture is actually visible before touching it.** The "black grid" on a floor was a `Mix (Legacy)` node at factor 0.035 blending a near-black colour with a 1024 image. The grid lines were in the image. Blender's viewport grid overlay looked like a material and wasn't one. Read the node tree with `links` and `default_value`, and read the image pixels, before picking a replacement texture.
+
+**Generated coordinates are per object.** `TexCoord.Generated` maps each object's own bounding box to 0..1. Two objects that meet at a seam start their grids from different corners, so the lines split at the join. Fix: `NewGeometry.Position` (world space) into the mapping, with the same scale on every object that shares the surface. Mapping scale is `1 / tile_size`.
+
+**Position projected onto XY streaks walls.** A wall facing X has nearly constant X and Y, so the image collapses into vertical stripes. Use triplanar projection: sample XY, XZ and YZ, then weight each by `abs(normal)` components over their sum. Build it with `SeparateXYZ`, `CombineXYZ`, `Math ABSOLUTE/DIVIDE`, and `Mix MULTIPLY/ADD` nodes.
+
+**Dominant-axis UVs seam on bends.** Projecting each face along its dominant normal axis switches axis at a bend, and the lines jump. Do not use it on a curved piece.
+
+**Conformal unwrap for a curved piece.** `uv.unwrap(method='ANGLE_BASED', margin=0)` on the whole mesh, with no seams, gives one continuous island with near-square cells. Rescale it so one tile equals the target size. The mesh needs its UVs in edit mode, so set the active object and `mode_set(mode='EDIT')` first. Note that `unwrap` works on the unscaled local mesh, and it prints "non-uniform scale" when the object has one. Scale by total area, not per patch, so cell sizes can still differ between floor and wall. Check the wall visually after every rescale.
+
+**Units.** Read `scene.unit_settings.scale_length` and `length_unit` before sizing anything in metres or studs. Roblox defines 1 stud as 0.28 m (https://create.roblox.com/docs/en-us/physics/units). A 10 × 10 stud tile is `10 * 0.28 = 2.8` units at scale 1.0.
+
+**Joining objects from another .blend.** `bpy.data.libraries.load` renames collisions silently: an import of `Plane.014` came in as `Plane.015`, with a second `Collection 4.001` and an unlinked duplicate. Check the target file for the name first, link the existing object into the scene with `scene.collection.objects.link(obj)`, and remove any orphan the import left. Check `users == 0` before removing data.
+
+**Look before you change, and stop after each change.** Every change above was followed by a viewport screenshot. Two of them were wrong on the first try (the checker texture was the wrong image, and the dominant-axis UVs seamed). Take one screenshot per change, state what it shows, and wait.
+
+**Open item:** the wall cells on the curved corner still look a little smaller than the floor's 2.8-unit squares. The area-based scale is global, so a per-patch scale would be the next step.
